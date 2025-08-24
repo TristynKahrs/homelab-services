@@ -1,11 +1,14 @@
 .env
 secrets/
+data/
 **/postgres/**
 **/redis/**
-**/data/**
 **/cache/**
+**/db/**
+**/conf/**
 **/.cache/**
-**/acme.json
+acme.json
 *.bak
+*.swp
 .DS_Store
 todo.md
