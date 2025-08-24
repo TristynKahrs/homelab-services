@@ -1,0 +1,11 @@
+.env
+secrets/
+**/postgres/**
+**/redis/**
+**/data/**
+**/cache/**
+**/.cache/**
+**/acme.json
+*.bak
+.DS_Store
+todo.md

@@ -1,0 +1,134 @@
+version: "3.9"
+
+networks:
+  proxy:
+    driver: bridge
+
+services:
+  # Reverse proxy + HTTPS on LAN. Public exposure = none.
+  traefik:
+    image: traefik:v3
+    container_name: traefik
+    restart: unless-stopped
+    networks: [ proxy ]
+    ports:
+      - "${HTTP}:80"               # LAN HTTP
+      - "${HTTPS}:443"             # LAN HTTPS
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --api.dashboard=true       # keep this LAN-only; you’ll VPN in for admin
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${DATA_ROOT}/traefik:/etc/traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.rule=Host(`traefik.${DOMAIN}`)"
+      - "traefik.http.routers.traefik.entrypoints=websecure"
+      - "traefik.http.routers.traefik.service=api@internal"
+
+  # Minimal file access + WebDAV for convenience.
+  filebrowser:
+    image: filebrowser/filebrowser:latest
+    container_name: filebrowser
+    restart: unless-stopped
+    networks: [ proxy ]
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - ${MEDIA_ROOT}:/srv/media:ro
+      - ${DOWNLOADS_ROOT}:/srv/downloads:ro
+      - ${DATA_ROOT}/filebrowser/db:/database
+      - ${DATA_ROOT}/filebrowser/config:/config
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.files.rule=Host(`files.${DOMAIN}`)"
+      - "traefik.http.routers.files.entrypoints=websecure"
+      - "traefik.http.services.files.loadbalancer.server.port=80"
+
+  # DNS brain for LAN + VPN clients (ad-blocking, split-DNS for *.home.lan).
+  adguard:
+    image: adguard/adguardhome:latest
+    container_name: adguard
+    restart: unless-stopped
+    ports:
+      - "53:53/udp"            # LAN/VPN DNS
+      - "53:53/tcp"
+      - "3000:3000"            # first-run setup UI (optionally route via Traefik later)
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - ${DATA_ROOT}/adguard/work:/opt/adguardhome/work
+      - ${DATA_ROOT}/adguard/conf:/opt/adguardhome/conf
+
+  # Private access into your LAN. Only 51820/udp needs a forward on the router.
+  wireguard:
+    image: lscr.io/linuxserver/wireguard:latest
+    container_name: wireguard
+    restart: unless-stopped
+    networks: [ proxy ]
+    cap_add: [ NET_ADMIN, SYS_MODULE ]
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - SERVERURL=${WG_SERVERURL}    # your public IP or DDNS
+      - SERVERPORT=51820
+      - PEERS=1                      # generate one admin peer to start
+      - PEERDNS=192.168.1.10         # set to AdGuard IP (LAN IP of this host) or WG interface IP
+      # Optional: INTERNAL_SUBNET if you want a custom WG subnet
+    volumes:
+      - ${DATA_ROOT}/wireguard:/config
+      - /lib/modules:/lib/modules:ro
+    ports:
+      - "51820:51820/udp"
+
+  # Encrypted, deduplicated backups for configs/media. Yes, this belongs in base.
+  borgmatic:
+    image: ghcr.io/borgmatic-collective/borgmatic:latest
+    container_name: borgmatic
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ}
+      - BORGMATIC_TZ=${TZ}
+      # set BORG_PASSPHRASE_FILE later when you add secrets
+    command: ["--verbosity","1","--syslog-verbosity","1","--cron"]
+    volumes:
+      - ${DATA_ROOT}/borgmatic/config:/etc/borgmatic
+      - ${DATA_ROOT}:/source/data:ro
+      - ${MEDIA_ROOT}:/source/media:ro
+      - ${DOWNLOADS_ROOT}:/source/downloads:ro
+      - ${DATA_ROOT}/borgmatic/cache:/root/.cache/borg
+      - ${DATA_ROOT}/borgmatic/ssh:/root/.ssh
+
+  # Docker UI. You’ll only expose this over VPN.
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer
+    restart: unless-stopped
+    networks: [ proxy ]
+    ports:
+      - "9000:9000"                 # keep LAN-only; admin comes via WG
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${DATA_ROOT}/portainer:/data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.portainer.rule=Host(`portainer.${DOMAIN}`)"
+      - "traefik.http.routers.portainer.entrypoints=websecure"
+      - "traefik.http.services.portainer.loadbalancer.server.port=9000"
+
+  # Auto-update images at a civilized hour. Delete if you prefer manual updates.
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: watchtower
+    restart: unless-stopped
+    command: --cleanup --include-stopped --revive-stopped --schedule "0 0 4 * * *"
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
