@@ -19,7 +19,7 @@ services:
       - --providers.docker.exposedbydefault=false
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
-      - --api.dashboard=true       # keep this LAN-only; you’ll VPN in for admin
+      - --ping=true
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ${DATA_ROOT}/traefik:/etc/traefik
@@ -28,6 +28,11 @@ services:
       - "traefik.http.routers.traefik.rule=Host(`traefik.${DOMAIN}`)"
       - "traefik.http.routers.traefik.entrypoints=websecure"
       - "traefik.http.routers.traefik.service=api@internal"
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
   # Minimal file access + WebDAV for convenience.
   filebrowser:

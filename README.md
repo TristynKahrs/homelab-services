@@ -22,8 +22,11 @@ Docker Compose configuration for self-hosting core services on a home server.
    git clone <repo-url>
    cd homelab-services
    ```
-2. Copy `.env.example` to `.env` and adjust values (`TZ`, `PUID`, `PGID`, `DOMAIN`, paths, etc.).
-3. Create the directories referenced by `DATA_ROOT`, `MEDIA_ROOT`, and `DOWNLOADS_ROOT`.
+2. Initialize environment and data directories
+   ```bash
+   make init
+   ```
+3. Edit `.env` and adjust values (`TZ`, `PUID`, `PGID`, `DOMAIN`, paths, etc.).
 
 ## Running
 
@@ -34,7 +37,11 @@ Docker Compose configuration for self-hosting core services on a home server.
 - [ ] Data directories created
 - [ ] Start services
   ```bash
-  docker compose up -d
+  make up
+  ```
+- [ ] View logs
+  ```bash
+  make logs
   ```
 - [ ] Visit services through Traefik:
   - https://traefik.${DOMAIN}
@@ -47,10 +54,13 @@ Docker Compose configuration for self-hosting core services on a home server.
 - Update images
   ```bash
   docker compose pull
-  docker compose up -d
+  make up
   ```
 - Stop stack
   ```bash
-  docker compose down
+  make down
   ```
+
+## Notes
+- Traefik's dashboard is disabled by default. If you enable it with `--api.dashboard=true`, ensure it is only accessible over VPN or protected with authentication.
 
